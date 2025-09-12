@@ -11,9 +11,11 @@ app.use(cors({
 // 🔹 Enhanced TLD list with pricing categories and individual prices (KSH) - TRUE KENYA HOST PRICING
 const extensions = [
   // Premium TLDs (high demand, premium pricing)
-  { ext: "com", yearlyPrice: 1690, monthlyPrice: 155, category: "Premium", description: "Most popular choice worldwide" },
-  { ext: "net", yearlyPrice: 1559, monthlyPrice: 145, category: "Premium", description: "Great for networks and tech" },
-  { ext: "org", yearlyPrice: 1429, monthlyPrice: 135, category: "Premium", description: "Perfect for organizations" },
+  { ext: "com", yearlyPrice: 1690, monthlyPrice: 155, category: "Premium", description: "Most popular choice worldwide", featured: true, popularity: 1 },
+  { ext: "co.ke", yearlyPrice: 2500, monthlyPrice: 220, category: "Kenya", description: "Kenya's premier domain", featured: true, popularity: 2 },
+  { ext: "net", yearlyPrice: 1559, monthlyPrice: 145, category: "Premium", description: "Great for networks and tech", featured: true, popularity: 3 },
+  { ext: "org", yearlyPrice: 1429, monthlyPrice: 135, category: "Premium", description: "Perfect for organizations", featured: true, popularity: 4 },
+  { ext: "ke", yearlyPrice: 2200, monthlyPrice: 195, category: "Kenya", description: "Kenya country domain", featured: true, popularity: 5 },
   { ext: "io", yearlyPrice: 6499, monthlyPrice: 590, category: "Premium", description: "Tech startup favorite" },
   { ext: "ai", yearlyPrice: 11699, monthlyPrice: 1050, category: "Premium", description: "AI and machine learning" },
   
@@ -138,6 +140,68 @@ function getRenewalDates() {
   };
 }
 
+// ✅ NEW: Featured domains endpoint
+app.get("/featured", (req, res) => {
+  const billing = req.query.billing?.trim() || 'both';
+  const limit = parseInt(req.query.limit) || 5;
+  
+  // Get featured domains sorted by popularity
+  const featuredExtensions = extensions
+    .filter(ext => ext.featured === true)
+    .sort((a, b) => (a.popularity || 999) - (b.popularity || 999))
+    .slice(0, limit);
+
+  const renewalDates = getRenewalDates();
+
+  const featuredDomains = featuredExtensions.map(ext => {
+    const baseResult = {
+      domain: `example.${ext.ext}`,
+      extension: ext.ext,
+      category: ext.category,
+      description: ext.description,
+      status: `Verified Available <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="color: #10B981; margin-left: 4px;"><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,
+      verified: true,
+      verifiedBadge: `<span style="background: #10B981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px;">✓ VERIFIED</span>`,
+      featured: true,
+      popularity: ext.popularity || 999
+    };
+
+    // Add pricing based on billing preference
+    if (billing === 'monthly' || billing === 'both') {
+      baseResult.monthlyPrice = ext.monthlyPrice;
+      baseResult.monthlyPriceText = `KSH ${ext.monthlyPrice}/month`;
+      baseResult.monthlyRenewal = renewalDates.monthly;
+    }
+
+    if (billing === 'yearly' || billing === 'both') {
+      baseResult.yearlyPrice = ext.yearlyPrice;
+      baseResult.yearlyPriceText = `KSH ${ext.yearlyPrice}/year`;
+      baseResult.yearlyRenewal = renewalDates.yearly;
+      baseResult.savings = ext.category === "Budget" ? `Save KSH ${(1690 - ext.yearlyPrice)}` : null;
+    }
+
+    // Set primary price for sorting
+    baseResult.price = billing === 'monthly' ? ext.monthlyPrice : ext.yearlyPrice;
+    baseResult.priceText = billing === 'monthly' ? baseResult.monthlyPriceText : baseResult.yearlyPriceText;
+
+    return baseResult;
+  });
+
+  const response = {
+    featured: true,
+    billing,
+    totalResults: featuredDomains.length,
+    renewalDates,
+    results: featuredDomains,
+    verification: {
+      allVerified: true,
+      verificationNote: "All featured domains are verified and available through Kenya Host"
+    }
+  };
+
+  res.json(response);
+});
+
 // Enhanced search endpoint with monthly/yearly pricing and renewal dates
 app.get("/search", (req, res) => {
   const keyword = req.query.keyword?.trim();
@@ -170,7 +234,8 @@ app.get("/search", (req, res) => {
       description: ext.description,
       status: `Verified Available <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="color: #10B981; margin-left: 4px;"><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,
       verified: true,
-      verifiedBadge: `<span style="background: #10B981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px;">✓ VERIFIED</span>`
+      verifiedBadge: `<span style="background: #10B981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; margin-left: 8px;">✓ VERIFIED</span>`,
+      featured: ext.featured || false
     };
 
     // Add pricing based on billing preference
@@ -199,32 +264,53 @@ app.get("/search", (req, res) => {
     results = results.filter(result => result.category === category);
   }
 
-  // Sort results
+  // Sort results - featured domains first, then by preference
   if (sortBy) {
     switch (sortBy) {
       case "price-low":
-        results.sort((a, b) => a.price - b.price);
+        results.sort((a, b) => {
+          // Featured first, then by price
+          if (a.featured && !b.featured) return -1;
+          if (!a.featured && b.featured) return 1;
+          return a.price - b.price;
+        });
         break;
       case "price-high":
-        results.sort((a, b) => b.price - a.price);
+        results.sort((a, b) => {
+          if (a.featured && !b.featured) return -1;
+          if (!a.featured && b.featured) return 1;
+          return b.price - a.price;
+        });
         break;
       case "extension":
-        results.sort((a, b) => a.extension.localeCompare(b.extension));
+        results.sort((a, b) => {
+          if (a.featured && !b.featured) return -1;
+          if (!a.featured && b.featured) return 1;
+          return a.extension.localeCompare(b.extension);
+        });
         break;
       case "category":
-        results.sort((a, b) => a.category.localeCompare(b.category));
+        results.sort((a, b) => {
+          if (a.featured && !b.featured) return -1;
+          if (!a.featured && b.featured) return 1;
+          return a.category.localeCompare(b.category);
+        });
         break;
     }
   } else {
-    // Default sort by price (low to high)
-    results.sort((a, b) => a.price - b.price);
+    // Default sort: featured first, then by price (low to high)
+    results.sort((a, b) => {
+      if (a.featured && !b.featured) return -1;
+      if (!a.featured && b.featured) return 1;
+      return a.price - b.price;
+    });
   }
 
   const response = {
     keyword,
     billing,
     totalResults: results.length,
-    categories: ["All", "Premium", "Standard", "Budget", "Tech", "Business", "Country"],
+    categories: ["All", "Premium", "Standard", "Budget", "Tech", "Business", "Country", "Kenya"],
     priceRange: {
       min: Math.min(...results.map(r => r.price)),
       max: Math.max(...results.map(r => r.price))
@@ -280,6 +366,12 @@ app.get("/categories", (req, res) => {
       description: "Country-specific domain extensions",
       priceRange: billing === 'monthly' ? "KSH 99 - KSH 185/month" : "KSH 1,039 - KSH 2,079/year",
       count: extensions.filter(e => e.category === "Country").length
+    },
+    {
+      name: "Kenya",
+      description: "Kenya-specific domain extensions",
+      priceRange: billing === 'monthly' ? "KSH 195 - KSH 220/month" : "KSH 2,200 - KSH 2,500/year",
+      count: extensions.filter(e => e.category === "Kenya").length
     }
   ];
   
@@ -312,6 +404,8 @@ app.get("/extension/:ext", (req, res) => {
     description: extension.description,
     available: true,
     verified: true,
+    featured: extension.featured || false,
+    popularity: extension.popularity,
     verifiedBadge: `<span style="background: #10B981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px;">✓ VERIFIED</span>`,
     renewalDates
   };
@@ -333,7 +427,8 @@ app.get("/extension/:ext", (req, res) => {
 app.get("/", (req, res) => {
   const stats = {
     totalExtensions: extensions.length,
-    categories: 6,
+    featuredExtensions: extensions.filter(e => e.featured).length,
+    categories: 7, // Updated to include Kenya category
     priceRange: {
       monthlyMin: Math.min(...extensions.map(e => e.monthlyPrice)),
       monthlyMax: Math.max(...extensions.map(e => e.monthlyPrice)),
@@ -355,6 +450,7 @@ app.get("/", (req, res) => {
         <li>5-character minimum requirement (e.g., "Johna" → "Johna.com")</li>
         <li><strong>Monthly & Yearly billing options</strong></li>
         <li><strong>Automatic renewal date calculation</strong></li>
+        <li><strong>${stats.featuredExtensions} Featured top domains (.com, .co.ke, .net, .org, .ke)</strong></li>
         <li>True Kenya Host pricing in KSH</li>
       </ul>
     </div>
@@ -362,6 +458,7 @@ app.get("/", (req, res) => {
     <h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6h-6z" stroke="currentColor" stroke-width="2"/></svg> API Statistics:</h3>
     <ul>
       <li>Total Extensions: ${stats.totalExtensions}</li>
+      <li><strong>Featured Extensions: ${stats.featuredExtensions}</strong></li>
       <li>Categories: ${stats.categories}</li>
       <li>Monthly Range: KSH ${stats.priceRange.monthlyMin} - KSH ${stats.priceRange.monthlyMax}/month</li>
       <li>Yearly Range: KSH ${stats.priceRange.yearlyMin} - KSH ${stats.priceRange.yearlyMax}/year</li>
@@ -378,6 +475,7 @@ app.get("/", (req, res) => {
     
     <h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21L16.65 16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> API Endpoints:</h3>
     <ul>
+      <li><code>GET /featured?billing=both&limit=5</code> - <strong>Get featured top domains</strong></li>
       <li><code>GET /search?keyword=Johna&billing=both&category=Budget&sort=price-low</code> - Search domains (5+ chars required)</li>
       <li><code>GET /search?keyword=Johna&billing=monthly</code> - Monthly pricing only</li>
       <li><code>GET /search?keyword=Johna&billing=yearly</code> - Yearly pricing only</li>
@@ -385,12 +483,24 @@ app.get("/", (req, res) => {
       <li><code>GET /extension/com?billing=both</code> - Get extension details with both pricing</li>
     </ul>
     
+    <div style="background: #F0FDF4; padding: 12px; border-radius: 8px; margin: 16px 0;">
+      <strong>⭐ Featured Top Domains:</strong>
+      <ul style="margin: 8px 0; padding-left: 20px;">
+        <li><strong>.com</strong> - Most popular worldwide (KSH 1,690/year)</li>
+        <li><strong>.co.ke</strong> - Kenya's premier domain (KSH 2,500/year)</li>
+        <li><strong>.net</strong> - Great for tech & networks (KSH 1,559/year)</li>
+        <li><strong>.org</strong> - Perfect for organizations (KSH 1,429/year)</li>
+        <li><strong>.ke</strong> - Kenya country domain (KSH 2,200/year)</li>
+      </ul>
+    </div>
+    
     <h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="1" x2="12" y2="23" stroke="currentColor" stroke-width="2"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" stroke-width="2"/></svg> Kenya Host Pricing:</h3>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0;">
       <div>
         <h4>Monthly Billing:</h4>
         <ul>
           <li><strong>Premium:</strong> KSH 135-1,050/month</li>
+          <li><strong>Kenya:</strong> KSH 195-220/month</li>
           <li><strong>Standard:</strong> KSH 135-175/month</li>
           <li><strong>Budget:</strong> KSH 79-120/month</li>
           <li><strong>Tech:</strong> KSH 175-285/month</li>
@@ -402,6 +512,7 @@ app.get("/", (req, res) => {
         <h4>Yearly Billing (Best Value):</h4>
         <ul>
           <li><strong>Premium:</strong> KSH 1,429-11,699/year</li>
+          <li><strong>Kenya:</strong> KSH 2,200-2,500/year</li>
           <li><strong>Standard:</strong> KSH 1,429-1,949/year</li>
           <li><strong>Budget:</strong> KSH 779-1,299/year</li>
           <li><strong>Tech:</strong> KSH 1,949-3,249/year</li>
@@ -415,6 +526,7 @@ app.get("/", (req, res) => {
       <strong>🔍 Search Requirements:</strong>
       <p>Domain names must be at least 5 characters long. Short searches like "j" or "ab" will be rejected. Try "Johna" or "MyBusiness" instead.</p>
       <p><strong>💰 Billing Options:</strong> Use <code>?billing=monthly</code>, <code>?billing=yearly</code>, or <code>?billing=both</code> to control pricing display.</p>
+      <p><strong>⭐ Featured Domains:</strong> Use <code>/featured</code> endpoint to get top most popular domains like .com, .co.ke, .net, .org, .ke</p>
     </div>
   `);
 });
@@ -422,6 +534,7 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="10,17 15,12 10,7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="15" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Kenya Host Domain API running on port ${port}`);
   console.log(`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6h-6z" stroke="currentColor" stroke-width="2"/></svg> Loaded ${extensions.length} verified extensions with monthly & yearly pricing`);
+  console.log(`⭐ Featured domains: ${extensions.filter(e => e.featured).length} top domains (.com, .co.ke, .net, .org, .ke)`);
   console.log(`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="1" x2="12" y2="23" stroke="currentColor" stroke-width="2"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" stroke-width="2"/></svg> Monthly: KSH ${Math.min(...extensions.map(e => e.monthlyPrice))}-${Math.max(...extensions.map(e => e.monthlyPrice))} | Yearly: KSH ${Math.min(...extensions.map(e => e.yearlyPrice))}-${Math.max(...extensions.map(e => e.yearlyPrice))}`);
-  console.log(`✅ NEW: Monthly/Yearly billing options | Auto-renewal dates | All verified domains`);
+  console.log(`✅ NEW: Featured domains endpoint | Monthly/Yearly billing | Auto-renewal dates | All verified domains`);
 });
