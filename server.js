@@ -5,7 +5,7 @@ const port = process.env.PORT || 3000;
 
 // ✅ Allow only your Netlify frontend
 app.use(cors({
-  origin: "https://stellar-granita-1a83b2.netlify.app"
+  origin: "https://polite-capybara-96789b.netlify.app"
 }));
 
 // 🔹 Enhanced TLD list with pricing categories and individual prices (KSH) - TRUE KENYA HOST PRICING
