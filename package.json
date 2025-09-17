@@ -1,38 +1,28 @@
 {
-  "name": "kenya-host-domain-api",
+  "name": "swiftwallet-stk-push",
   "version": "1.0.0",
-  "description": "Kenya Host Domain Search API with monthly/yearly pricing and verification badges",
-  "main": "server.js",
-  "type": "module",
+  "description": "SwiftWallet STK Push backend in Node.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "keywords": [
-    "domain",
-    "api",
-    "kenya",
-    "hosting",
-    "domain-search",
-    "pricing",
-    "verification"
+    "swiftwallet",
+    "stkpush",
+    "mpesa",
+    "nodejs",
+    "express"
   ],
-  "author": "Kenya Host",
+  "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "axios": "^1.7.2",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
   },
-  "engines": {
-    "node": ">=14.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/kenyahost/domain-api"
-  },
-  "bugs": {
-    "url": "https://github.com/kenyahost/domain-api/issues"
-  },
-  "homepage": "https://github.com/kenyahost/domain-api#readme"
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
 }
