@@ -62,7 +62,7 @@ app.post("/pay", async (req, res) => {
       phone_number: formattedPhone,
       external_reference: reference,
       customer_name: "Customer",
-      callback_url: "https://swiftwallet-stk-push.onrender.com/callback",
+      callback_url: "https://dormainsearch.onrender.com/callback",
       channel_id: "000103"
     };
 
