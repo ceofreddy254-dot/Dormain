@@ -15,7 +15,7 @@ const receiptsFile = path.join(__dirname, "receipts.json");
 app.use(bodyParser.json());
 app.use(
   cors({
-    origin: "https://aesthetic-dolphin-cd6fba.netlify.app"
+    origin: "https://ceofreddy.onrender.com"
   })
 );
 
