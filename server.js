@@ -229,6 +229,7 @@ app.get("/receipt/:reference/pdf", (req, res) => {
 });
 
 // ✅ PDF generator
+   
 function generateReceiptPDF(receipt, res) {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename=receipt-${receipt.reference}.pdf`);
@@ -236,17 +237,28 @@ function generateReceiptPDF(receipt, res) {
   const doc = new PDFDocument({ margin: 50 });
   doc.pipe(res);
 
+  // 🎨 Header background
   doc
     .rect(0, 0, doc.page.width, 80)
-    .fill("#2196F3")
+    .fill("#2196F3");
+
+  // ⚡ Flash logo (emoji as logo)
+  doc
+    .fillColor("yellow")
+    .fontSize(40)
+    .text("⚡", 20, 20, { align: "left" });
+
+  // Company name
+  doc
     .fillColor("white")
     .fontSize(24)
-    .text("SwiftLoan Kenya", 50, 25, { align: "left" })
+    .text("SwiftLoan Kenya", 70, 25, { align: "left" })
     .fontSize(12)
-    .text("Loan & Payment Receipt", 50, 55);
+    .text("Loan & Payment Receipt", 70, 55);
 
   doc.moveDown(3);
 
+  // 🧾 Receipt details
   doc.fillColor("black").fontSize(14).text("Receipt Details", { underline: true });
   doc.moveDown();
 
@@ -267,6 +279,7 @@ function generateReceiptPDF(receipt, res) {
 
   doc.moveDown();
 
+  // 📝 Status note
   if (receipt.status_note) {
     doc
       .fontSize(12)
@@ -276,6 +289,7 @@ function generateReceiptPDF(receipt, res) {
       .text(receipt.status_note);
   }
 
+  // ✅ Watermark for success
   if (receipt.status === "success") {
     doc
       .fontSize(60)
@@ -287,9 +301,15 @@ function generateReceiptPDF(receipt, res) {
       .opacity(1);
   }
 
+  // Footer
+  doc.moveDown(2);
+  doc
+    .fontSize(10)
+    .fillColor("gray")
+    .text("⚡ SwiftLoan Kenya © 2024", { align: "center" });
+
   doc.end();
 }
-
 // 5️⃣ Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
