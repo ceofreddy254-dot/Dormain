@@ -4,7 +4,7 @@ const cors = require("cors");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
-const PDFDocument = require("pdfkit");
+const PDFDocument = require("pdfkit"); // ✅ Keep this one only
 
 const app = express();
 const PORT = 3000;
@@ -37,42 +37,6 @@ function formatPhone(phone) {
     return "254" + digits.substring(1);
   if (digits.length === 12 && digits.startsWith("254")) return digits;
   return null;
-}
-
-// PDF Generator
-function generateReceiptPDF(receipt, res) {
-  const doc = new PDFDocument({ margin: 50 });
-
-  // Stream PDF to response
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename=${receipt.reference}.pdf`);
-  doc.pipe(res);
-
-  // Header
-  doc.fontSize(20).fillColor("#2196F3").text("Swift Loan Kenya", { align: "center" }).moveDown();
-
-  // Title
-  doc.fontSize(16).fillColor("#4CAF50").text("✅ Payment Receipt", { align: "center" }).moveDown(2);
-
-  // Receipt details
-  doc.fontSize(12).fillColor("black");
-  doc.text(`Reference: ${receipt.reference}`);
-  doc.text(`Transaction ID: ${receipt.transaction_id || "N/A"}`);
-  doc.text(`Transaction Code: ${receipt.transaction_code || "N/A"}`);
-  doc.text(`Fee Paid: KSH ${receipt.amount}`);
-  doc.text(`Loan Amount: KSH ${receipt.loan_amount}`);
-  doc.text(`Phone: ${receipt.phone}`);
-  doc.text(`Status: ${receipt.status}`);
-  doc.text(`Time: ${new Date(receipt.timestamp).toLocaleString()}`);
-
-  doc.moveDown();
-  doc.fillColor("#555").fontSize(12).text(receipt.status_note, { align: "justify" });
-
-  // Footer
-  doc.moveDown(2);
-  doc.fontSize(10).fillColor("gray").text("Swift Loan Kenya © 2024", { align: "center" });
-
-  doc.end();
 }
 
 // 1️⃣ Initiate Payment
@@ -110,7 +74,6 @@ app.post("/pay", async (req, res) => {
     console.log("SwiftWallet response:", resp.data);
 
     if (resp.data.success) {
-      // Save PENDING receipt - payment not yet confirmed
       const receiptData = {
         reference,
         transaction_id: resp.data.transaction_id || null,
@@ -119,7 +82,7 @@ app.post("/pay", async (req, res) => {
         loan_amount: loan_amount || "50000",
         phone: formattedPhone,
         status: "pending",
-        status_note: `STK push sent to ${formattedPhone}. Please enter your M-Pesa PIN to complete payment. Once payment is confirmed, your loan will be processed.`,
+        status_note: `STK push sent to ${formattedPhone}. Please enter your M-Pesa PIN to complete payment.`,
         timestamp: new Date().toISOString()
       };
 
@@ -134,7 +97,6 @@ app.post("/pay", async (req, res) => {
         receipt: receiptData
       });
     } else {
-      // Handle failed STK push
       const failedReceiptData = {
         reference,
         transaction_id: resp.data.transaction_id || null,
@@ -158,14 +120,12 @@ app.post("/pay", async (req, res) => {
       });
     }
   } catch (err) {
-    // Log error details for debugging
     console.error("Payment initiation error:", {
       message: err.message,
       status: err.response?.status,
       data: err.response?.data
     });
 
-    // Handle server error
     const reference = "ORDER-" + Date.now();
     const { phone, amount, loan_amount } = req.body;
     const formattedPhone = formatPhone(phone);
@@ -203,7 +163,6 @@ app.post("/callback", (req, res) => {
   let receipts = readReceipts();
   const existingReceipt = receipts[ref] || {};
 
-  // Normalize status
   const status = data.status?.toLowerCase();
   const resultCode = data.result?.ResultCode;
 
@@ -216,7 +175,7 @@ app.post("/callback", (req, res) => {
       loan_amount: existingReceipt.loan_amount || "50000",
       phone: data.result?.Phone || existingReceipt.phone || null,
       status: "success",
-      status_note: `Loan withdrawal is successful and the fee was accepted. You will receive the applied loan amount in the next 19 minutes.\n\nRegards Swift Loan Kenya 🇰🇪`,
+      status_note: `Loan withdrawal is successful and the fee was accepted.`,
       timestamp: data.timestamp || new Date().toISOString(),
     };
   } else {
@@ -228,18 +187,17 @@ app.post("/callback", (req, res) => {
       loan_amount: existingReceipt.loan_amount || "50000",
       phone: data.result?.Phone || existingReceipt.phone || null,
       status: "cancelled",
-      status_note: data.result?.ResultDesc || "Payment was cancelled or failed. Your loan will remain on hold (expire) for 24 hours and will not be withdrawn. Retry or contact customer care for assistance.",
+      status_note: data.result?.ResultDesc || "Payment was cancelled or failed.",
       timestamp: data.timestamp || new Date().toISOString(),
     };
   }
 
   writeReceipts(receipts);
 
-  // Must always return 200 to avoid retries
   res.json({ ResultCode: 0, ResultDesc: "Success" });
 });
 
-// 3️⃣ Fetch receipt endpoint
+// 3️⃣ Fetch receipt
 app.get("/receipt/:reference", (req, res) => {
   const receipts = readReceipts();
   const receipt = receipts[req.params.reference];
@@ -251,43 +209,33 @@ app.get("/receipt/:reference", (req, res) => {
   res.json({ success: true, receipt });
 });
 
-// 4️⃣ PDF receipt endpoint
+// 4️⃣ PDF receipt
 app.get("/receipt/:reference/pdf", (req, res) => {
   const receipts = readReceipts();
   const receipt = receipts[req.params.reference];
 
   if (!receipt) {
-    return res
-      .status(404)
-      .json({ success: false, error: "Receipt not found" });
+    return res.status(404).json({ success: false, error: "Receipt not found" });
   }
 
   if (receipt.status !== "success") {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        error: "PDF receipt only available after successful payment"
-      });
+    return res.status(400).json({
+      success: false,
+      error: "PDF receipt only available after successful payment"
+    });
   }
 
   generateReceiptPDF(receipt, res);
 });
 
-// ✅ PDF generator function
-const PDFDocument = require("pdfkit");
-
+// ✅ PDF generator
 function generateReceiptPDF(receipt, res) {
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename=receipt-${receipt.reference}.pdf`
-  );
+  res.setHeader("Content-Disposition", `attachment; filename=receipt-${receipt.reference}.pdf`);
 
   const doc = new PDFDocument({ margin: 50 });
   doc.pipe(res);
 
-  // 🎨 Header
   doc
     .rect(0, 0, doc.page.width, 80)
     .fill("#2196F3")
@@ -299,7 +247,6 @@ function generateReceiptPDF(receipt, res) {
 
   doc.moveDown(3);
 
-  // 🧾 Receipt details
   doc.fillColor("black").fontSize(14).text("Receipt Details", { underline: true });
   doc.moveDown();
 
@@ -320,7 +267,6 @@ function generateReceiptPDF(receipt, res) {
 
   doc.moveDown();
 
-  // 📝 Status note
   if (receipt.status_note) {
     doc
       .fontSize(12)
@@ -330,7 +276,6 @@ function generateReceiptPDF(receipt, res) {
       .text(receipt.status_note);
   }
 
-  // ✅ Watermark for success
   if (receipt.status === "success") {
     doc
       .fontSize(60)
