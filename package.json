@@ -2,10 +2,10 @@
   "name": "swiftwallet-stk-push",
   "version": "1.0.0",
   "description": "SwiftWallet STK Push backend in Node.js",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "keywords": [
     "swiftwallet",
