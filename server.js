@@ -187,7 +187,7 @@ app.post("/callback", (req, res) => {
       loan_amount: existingReceipt.loan_amount || '50000',
       phone: data.result?.Phone || existingReceipt.phone || null,
       status: "cancelled",
-      status_note: "Payment was cancelled or failed. Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.",
+      status_note: "Payment was cancelled or failed. Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.retry or contact customer care for assistance.",
       timestamp: data.timestamp || new Date().toISOString()
     };
   }
