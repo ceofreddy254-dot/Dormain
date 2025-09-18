@@ -77,7 +77,7 @@ app.post("/pay", async (req, res) => {
     console.log("SwiftWallet response:", resp.data);
 
     if (resp.data.success) {
-      // Save pending receipt with loan amount
+      // Save PENDING receipt - payment not yet confirmed
       const receiptData = {
         reference,
         transaction_id: resp.data.transaction_id || null,
@@ -85,8 +85,8 @@ app.post("/pay", async (req, res) => {
         amount: Math.round(amount),
         loan_amount: loan_amount || '50000',
         phone: formattedPhone,
-        status: "success",
-        status_note: `Loan withdrawal is successful and the fee was accepted. You will receive the applied loan amount in the next 19 minutes.\n\nRegards Swift Loan Kenya 🇰🇪`,
+        status: "pending",
+        status_note: `STK push sent to ${formattedPhone}. Please enter your M-Pesa PIN to complete payment. Once payment is confirmed, your loan will be processed.`,
         timestamp: new Date().toISOString()
       };
 
@@ -109,8 +109,8 @@ app.post("/pay", async (req, res) => {
         amount: Math.round(amount),
         loan_amount: loan_amount || '50000',
         phone: formattedPhone,
-        status: "loan cancelled",
-        status_note: "Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.",
+        status: "stk_failed",
+        status_note: "STK push failed to send. Please try again or contact support.",
         timestamp: new Date().toISOString()
       };
 
@@ -137,8 +137,8 @@ app.post("/pay", async (req, res) => {
       amount: amount ? Math.round(amount) : null,
       loan_amount: loan_amount || '50000',
       phone: formattedPhone,
-      status: "failed",
-      status_note: "Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.",
+      status: "error",
+      status_note: "System error occurred. Please try again later.",
       timestamp: new Date().toISOString()
     };
 
@@ -186,8 +186,8 @@ app.post("/callback", (req, res) => {
       amount: data.result?.Amount || existingReceipt.amount || null,
       loan_amount: existingReceipt.loan_amount || '50000',
       phone: data.result?.Phone || existingReceipt.phone || null,
-      status: "loan cancelled",
-      status_note: "Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.",
+      status: "cancelled",
+      status_note: "Payment was cancelled or failed. Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.",
       timestamp: data.timestamp || new Date().toISOString()
     };
   }
