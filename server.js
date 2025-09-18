@@ -257,17 +257,95 @@ app.get("/receipt/:reference/pdf", (req, res) => {
   const receipt = receipts[req.params.reference];
 
   if (!receipt) {
-    return res.status(404).json({ success: false, error: "Receipt not found" });
+    return res
+      .status(404)
+      .json({ success: false, error: "Receipt not found" });
   }
 
   if (receipt.status !== "success") {
-    return res.status(400).json({ success: false, error: "PDF receipt only available after successful payment" });
+    return res
+      .status(400)
+      .json({
+        success: false,
+        error: "PDF receipt only available after successful payment"
+      });
   }
 
   generateReceiptPDF(receipt, res);
 });
 
-// Start server
+// ✅ PDF generator function
+const PDFDocument = require("pdfkit");
+
+function generateReceiptPDF(receipt, res) {
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename=receipt-${receipt.reference}.pdf`
+  );
+
+  const doc = new PDFDocument({ margin: 50 });
+  doc.pipe(res);
+
+  // 🎨 Header
+  doc
+    .rect(0, 0, doc.page.width, 80)
+    .fill("#2196F3")
+    .fillColor("white")
+    .fontSize(24)
+    .text("SwiftLoan Kenya", 50, 25, { align: "left" })
+    .fontSize(12)
+    .text("Loan & Payment Receipt", 50, 55);
+
+  doc.moveDown(3);
+
+  // 🧾 Receipt details
+  doc.fillColor("black").fontSize(14).text("Receipt Details", { underline: true });
+  doc.moveDown();
+
+  const details = [
+    ["Reference", receipt.reference],
+    ["Transaction ID", receipt.transaction_id || "N/A"],
+    ["Transaction Code", receipt.transaction_code || "N/A"],
+    ["Fee Amount", `KSH ${receipt.amount}`],
+    ["Loan Amount", `KSH ${receipt.loan_amount}`],
+    ["Phone", receipt.phone],
+    ["Status", receipt.status.toUpperCase()],
+    ["Time", new Date(receipt.timestamp).toLocaleString()],
+  ];
+
+  details.forEach(([key, value]) => {
+    doc.fontSize(12).text(`${key}: `, { continued: true }).text(value);
+  });
+
+  doc.moveDown();
+
+  // 📝 Status note
+  if (receipt.status_note) {
+    doc
+      .fontSize(12)
+      .fillColor("#555")
+      .text("Note:", { underline: true })
+      .moveDown(0.5)
+      .text(receipt.status_note);
+  }
+
+  // ✅ Watermark for success
+  if (receipt.status === "success") {
+    doc
+      .fontSize(60)
+      .fillColor("green")
+      .opacity(0.2)
+      .rotate(-30, { origin: [300, 400] })
+      .text("PAID", 150, 400, { align: "center" })
+      .rotate(30, { origin: [300, 400] })
+      .opacity(1);
+  }
+
+  doc.end();
+}
+
+// 5️⃣ Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
